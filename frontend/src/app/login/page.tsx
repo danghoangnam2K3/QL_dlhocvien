@@ -27,8 +27,12 @@ export default function LoginPage() {
         login(res.data.token, res.data.user);
       }
     } catch (err: any) {
-      const msg = err.response?.data?.message || 'Thông tin đăng nhập không chính xác.';
-      toast.error(msg);
+      if (!err.response) {
+        toast.error('Không thể kết nối tới Server Backend. Vui lòng kiểm tra cấu hình URL API.');
+      } else {
+        const msg = err.response?.data?.message || 'Thông tin đăng nhập không chính xác.';
+        toast.error(msg);
+      }
     } finally {
       setSubmitting(false);
     }
