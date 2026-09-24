@@ -16,23 +16,30 @@ const login = async (req, res) => {
       });
     }
 
+    const cleanUsername = username.trim();
+
     // Tìm user theo username
     const { data: user, error } = await supabase
       .from('users')
       .select('*')
-      .eq('username', username.trim())
+      .eq('username', cleanUsername)
       .single();
 
-    // Thông báo lỗi chung - không tiết lộ sai ở đâu
-    const authError = () => res.status(401).json({
-      success: false,
-      message: 'Thông tin đăng nhập không chính xác.'
-    });
+    if (error) {
+      console.error(`[Auth] Lỗi truy vấn Supabase cho user "${cleanUsername}":`, error.message);
+    }
 
-    if (error || !user) return authError();
+    if (!user) {
+      console.warn(`[Auth] Không tìm thấy user "${cleanUsername}" trong database.`);
+      return res.status(401).json({
+        success: false,
+        message: 'Thông tin đăng nhập không chính xác.'
+      });
+    }
 
     // Kiểm tra trạng thái tài khoản
     if (user.status === 'locked') {
+      console.warn(`[Auth] Tài khoản "${cleanUsername}" đang bị khóa.`);
       return res.status(403).json({
         success: false,
         message: 'Tài khoản của bạn đã bị khóa. Vui lòng liên hệ Admin.'
@@ -41,7 +48,13 @@ const login = async (req, res) => {
 
     // Kiểm tra mật khẩu
     const isPasswordValid = await bcrypt.compare(password, user.password_hash);
-    if (!isPasswordValid) return authError();
+    if (!isPasswordValid) {
+      console.warn(`[Auth] Mật khẩu nhập vào không khớp cho user "${cleanUsername}".`);
+      return res.status(401).json({
+        success: false,
+        message: 'Thông tin đăng nhập không chính xác.'
+      });
+    }
 
     // Tạo JWT token
     const tokenPayload = {
@@ -52,9 +65,11 @@ const login = async (req, res) => {
       role: user.role
     };
 
-    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, {
+    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET || 'fallback_secret', {
       expiresIn: process.env.JWT_EXPIRES_IN || '8h'
     });
+
+    console.log(`[Auth] Đăng nhập thành công cho user: "${cleanUsername}" (${user.role})`);
 
     // Ghi audit log bất đồng bộ
     writeAuditLog({
@@ -78,7 +93,7 @@ const login = async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('[AuthController] login error:', err);
+    console.error('[AuthController] Lỗi không xác định:', err);
     return res.status(500).json({ success: false, message: 'Lỗi hệ thống.' });
   }
 };
