@@ -1,0 +1,13 @@
+{
+  "name": "backend-laixe",
+  "version": "1.0.0",
+  "description": "Backend API - Hệ thống Số hóa Quy trình Đào tạo Lái xe",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
