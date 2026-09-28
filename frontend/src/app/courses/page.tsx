@@ -5,7 +5,7 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { Header } from '@/components/layout/Header';
 import { api } from '@/lib/api';
 import toast, { Toaster } from 'react-hot-toast';
-import { Plus, Search, Filter, Edit, Trash2, BookOpen, Calendar, CheckCircle, XCircle } from 'lucide-react';
+import { Plus, Search, Filter, Edit, Trash2, BookOpen, Calendar, CheckCircle, XCircle, FileSpreadsheet } from 'lucide-react';
 
 export default function CoursesPage() {
   const [courses, setCourses] = useState<any[]>([]);
@@ -15,6 +15,8 @@ export default function CoursesPage() {
 
   // Modal State
   const [showModal, setShowModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
   const [editingCourse, setEditingCourse] = useState<any>(null);
   const [formData, setFormData] = useState({
     code: '',
@@ -44,6 +46,31 @@ export default function CoursesPage() {
   useEffect(() => {
     fetchCourses();
   }, [search, category]);
+
+  const handleImportFile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!importFile) {
+      toast.error('Vui lòng chọn file dữ liệu Báo Cáo 1 (.xml hoặc .xlsx)');
+      return;
+    }
+
+    const data = new FormData();
+    data.append('file', importFile);
+
+    try {
+      const res = await api.post('/students/import', data, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      if (res.data.success) {
+        toast.success(res.data.message, { duration: 6000 });
+        setShowImportModal(false);
+        setImportFile(null);
+        fetchCourses();
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Lỗi khi nhập file');
+    }
+  };
 
   const handleOpenCreate = () => {
     setEditingCourse(null);
@@ -147,13 +174,23 @@ export default function CoursesPage() {
               </select>
             </div>
 
-            <button
-              onClick={handleOpenCreate}
-              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm rounded-xl flex items-center space-x-2 shadow-lg shadow-blue-600/30 transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Tạo Khóa Học Mới</span>
-            </button>
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm rounded-xl flex items-center space-x-2 border border-slate-700 transition-all"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                <span>Import Báo Cáo 1 (Tự Động)</span>
+              </button>
+
+              <button
+                onClick={handleOpenCreate}
+                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm rounded-xl flex items-center space-x-2 shadow-lg shadow-blue-600/30 transition-all"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Tạo Khóa Học Mới</span>
+              </button>
+            </div>
           </div>
 
           {/* Courses Table */}
@@ -341,6 +378,56 @@ export default function CoursesPage() {
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-semibold shadow-lg shadow-blue-600/30"
                 >
                   {editingCourse ? 'Lưu Thay Đổi' : 'Tạo Khóa Học'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Import XML File Báo cáo 1 */}
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <h3 className="text-lg font-bold text-white flex items-center space-x-2">
+              <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
+              <span>Import File Báo Cáo 1 (BC1)</span>
+            </h3>
+
+            <form onSubmit={handleImportFile} className="space-y-4 text-sm">
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">File Báo Cáo (.xml / .xlsx) *</label>
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.xml"
+                  onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-300 file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-500"
+                  required
+                />
+              </div>
+
+              <div className="p-3.5 bg-slate-950/80 rounded-xl border border-blue-500/20 text-xs text-slate-300 space-y-1.5">
+                <p className="font-semibold text-blue-400 flex items-center space-x-1">
+                  <span>⚡ Khởi Tạo Khóa Học Tự Động:</span>
+                </p>
+                <p className="text-slate-400 leading-relaxed">
+                  Khi import file XML Báo Cáo 1, hệ thống sẽ tự động đọc thông tin khóa học (Mã khóa, Tên khóa, Ngày khai giảng/bế giảng) để <strong className="text-emerald-400">tạo mới Khóa học</strong> và thêm danh sách học viên đi kèm.
+                </p>
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowImportModal(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-semibold shadow-lg shadow-emerald-600/30"
+                >
+                  Import Khóa & Học Viên
                 </button>
               </div>
             </form>

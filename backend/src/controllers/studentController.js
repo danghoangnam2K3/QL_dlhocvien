@@ -144,123 +144,288 @@ const createStudent = async (req, res) => {
   }
 };
 
-// POST /api/students/import (Import file Excel/XML)
+const xml2js = require('xml2js');
+
+// Helper parse DOB
+const parseDob = (rawDob) => {
+  if (!rawDob) return null;
+  const str = String(rawDob).trim();
+  if (/^\d{8}$/.test(str)) {
+    return `${str.substring(0, 4)}-${str.substring(4, 6)}-${str.substring(6, 8)}`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    return str;
+  }
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(str)) {
+    const parts = str.split('/');
+    return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+  }
+  return str;
+};
+
+// Helper normalize category
+const normalizeCategory = (cat) => {
+  if (!cat) return 'B2';
+  const upper = String(cat).trim().toUpperCase();
+  if (upper === 'B') return 'B2';
+  if (['A1', 'A2', 'B1', 'B2', 'C', 'D', 'E', 'F'].includes(upper)) return upper;
+  return 'B2';
+};
+
+// Helper DAT targets
+const getDatTargets = (category) => {
+  const upper = (category || '').toUpperCase();
+  if (upper === 'B1') return { km: 710, hours: 12 };
+  if (upper === 'B2' || upper === 'B') return { km: 810, hours: 24 };
+  if (upper === 'C') return { km: 825, hours: 28 };
+  return { km: 800, hours: 24 };
+};
+
+// POST /api/students/import (Import file Excel/XML Báo Cáo 1)
 const importStudents = async (req, res) => {
   try {
-    const { course_id } = req.body;
+    let { course_id } = req.body;
 
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'Vui lòng tải lên file dữ liệu.' });
     }
-    if (!course_id) {
-      return res.status(400).json({ success: false, message: 'Vui lòng chọn khóa học.' });
-    }
 
-    // Kiểm tra khóa học
-    const { data: course } = await supabase.from('courses').select('*').eq('id', course_id).single();
-    if (!course) return res.status(404).json({ success: false, message: 'Không tìm thấy khóa học.' });
-    if (course.status !== 'active') {
-      return res.status(400).json({ success: false, message: 'Không được nhập học viên vào khóa học đã kết thúc.' });
-    }
+    const fileContent = req.file.buffer.toString('utf8');
+    const isXml = req.file.originalname.toLowerCase().endsWith('.xml') ||
+                  req.file.mimetype.includes('xml') ||
+                  fileContent.trim().startsWith('<?xml') ||
+                  fileContent.trim().startsWith('<BAO_CAO1>');
 
-    // Đọc file Excel
-    let workbook;
-    try {
-      workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
-    } catch (e) {
-      return res.status(400).json({ success: false, message: 'File không đúng định dạng. Vui lòng sử dụng file Excel (.xlsx/.xls).' });
-    }
+    let targetCourse = null;
+    let studentsToInsert = [];
+    let errorList = [];
 
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    const rows = xlsx.utils.sheet_to_json(sheet, { defval: '' });
-
-    if (rows.length === 0) {
-      return res.status(400).json({ success: false, message: 'File không có dữ liệu.' });
-    }
-
-    const successList = [];
-    const errorList = [];
-
-    // Lấy danh sách CCCD đã tồn tại trong khóa học
-    const { data: existingStudents } = await supabase
-      .from('students')
-      .select('cccd')
-      .eq('course_id', course_id);
-    const existingCCCDs = new Set(existingStudents?.map(s => s.cccd) || []);
-
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      const rowNum = i + 2; // Header ở dòng 1
-
-      // Map các cột (linh hoạt với tên cột tiếng Việt/Anh)
-      const full_name = (row['Họ tên'] || row['full_name'] || row['HoTen'] || '').toString().trim();
-      const cccd = (row['CCCD'] || row['Số CCCD'] || row['CMND'] || row['cccd'] || '').toString().trim();
-      const dob_raw = row['Ngày sinh'] || row['dob'] || row['NgaySinh'] || '';
-      const phone = (row['Số điện thoại'] || row['phone'] || row['SoDienThoai'] || '').toString().trim();
-      const category = (row['Hạng'] || row['category'] || row['HangDaoTao'] || '').toString().trim();
-
-      // Validate dòng
-      if (!full_name || !cccd || !category) {
-        errorList.push({ row: rowNum, cccd, reason: 'Thiếu thông tin bắt buộc (Họ tên, CCCD, Hạng)' });
-        continue;
+    if (isXml) {
+      // Xử lý file XML Báo cáo 1 (BC1)
+      let parsedXml;
+      try {
+        parsedXml = await xml2js.parseStringPromise(fileContent, { explicitArray: false });
+      } catch (xmlErr) {
+        console.error('[StudentController] XML Parse Error:', xmlErr);
+        return res.status(400).json({ success: false, message: 'Cấu trúc file XML không hợp lệ.' });
       }
 
-      if (existingCCCDs.has(cccd)) {
-        errorList.push({ row: rowNum, cccd, reason: 'CCCD đã tồn tại trong khóa học' });
-        continue;
+      const reportData = parsedXml?.BAO_CAO1?.DATA;
+      if (!reportData || !reportData.KHOA_HOC) {
+        return res.status(400).json({ success: false, message: 'File XML không chứa thông tin Báo Cáo 1 (Thiếu thẻ KHOA_HOC).' });
       }
 
-      // Parse ngày sinh
-      let dob = null;
-      if (dob_raw) {
-        if (typeof dob_raw === 'number') {
-          // Excel serial date
-          const date = xlsx.SSF.parse_date_code(dob_raw);
-          dob = `${date.y}-${String(date.m).padStart(2,'0')}-${String(date.d).padStart(2,'0')}`;
-        } else {
-          dob = dob_raw.toString().trim();
+      const kh = reportData.KHOA_HOC;
+      const courseCode = (kh.MA_KHOA_HOC || '').toString().trim().toUpperCase();
+      const courseName = (kh.TEN_KHOA_HOC || '').toString().trim();
+      const rawCategory = kh.HANG_GPLX || kh.MA_HANG_DAO_TAO || 'B2';
+      const category = normalizeCategory(rawCategory);
+      const startDate = kh.NGAY_KHAI_GIANG || new Date().toISOString().split('T')[0];
+      const endDate = kh.NGAY_BE_GIANG || new Date(Date.now() + 90 * 86400000).toISOString().split('T')[0];
+
+      if (!courseCode || !courseName) {
+        return res.status(400).json({ success: false, message: 'Thông tin khóa học trong XML thiếu Mã hoặc Tên khóa.' });
+      }
+
+      // 1. Kiểm tra khóa học đã tồn tại chưa
+      const { data: existingCourse } = await supabase
+        .from('courses')
+        .select('*')
+        .eq('code', courseCode)
+        .single();
+
+      if (existingCourse) {
+        targetCourse = existingCourse;
+      } else {
+        // Tự động tạo khóa học mới
+        const targets = getDatTargets(category);
+        const { data: newCourse, error: createCourseErr } = await supabase
+          .from('courses')
+          .insert({
+            code: courseCode,
+            name: courseName,
+            category: category,
+            start_date: startDate,
+            end_date: endDate,
+            dat_km_target: targets.km,
+            dat_hours_target: targets.hours,
+            status: 'active',
+            notes: `Tự động khởi tạo từ file Báo Cáo 1 (${req.file.originalname})`,
+            created_by: req.user.id
+          })
+          .select()
+          .single();
+
+        if (createCourseErr) {
+          console.error('[StudentController] Auto-create course error:', createCourseErr);
+          return res.status(500).json({ success: false, message: `Lỗi khi tự động tạo khóa học [${courseCode}]: ${createCourseErr.message}` });
         }
+
+        targetCourse = newCourse;
       }
 
-      successList.push({
-        course_id,
-        full_name,
-        dob,
-        cccd,
-        phone: phone || null,
-        category,
-        student_status: 'active',
-        cabin_status: 'not_submitted',
-        created_by: req.user.id
-      });
-      existingCCCDs.add(cccd); // Tránh trùng trong cùng file
+      // 2. Parse danh sách học viên từ XML
+      const rawStudents = reportData.NGUOI_LXS?.NGUOI_LX;
+      if (!rawStudents) {
+        return res.status(400).json({ success: false, message: 'Khóa học không có danh sách học viên (Thiếu NGUOI_LX).' });
+      }
+
+      const studentList = Array.isArray(rawStudents) ? rawStudents : [rawStudents];
+      course_id = targetCourse.id;
+
+      // Lấy danh sách CCCD đã có trong khóa
+      const { data: existingStudents } = await supabase
+        .from('students')
+        .select('cccd')
+        .eq('course_id', course_id);
+      const existingCCCDs = new Set(existingStudents?.map(s => s.cccd) || []);
+
+      for (let i = 0; i < studentList.length; i++) {
+        const item = studentList[i];
+        const full_name = (item.HO_VA_TEN || [item.HO_TEN_DEM, item.TEN].filter(Boolean).join(' ') || '').toString().trim();
+        const cccd = (item.SO_CMT || '').toString().trim();
+        const dob = parseDob(item.NGAY_SINH);
+        const phone = (item.SO_DIEN_THOAI || item.DIEN_THOAI || '').toString().trim() || null;
+        const studentCat = normalizeCategory(item.HO_SO?.HANG_GPLX || item.HO_SO?.HANG_DAOTAO || category);
+
+        if (!full_name || !cccd) {
+          errorList.push({ row: i + 1, cccd, reason: 'Thiếu Họ tên hoặc CCCD' });
+          continue;
+        }
+
+        if (existingCCCDs.has(cccd)) {
+          errorList.push({ row: i + 1, cccd, reason: 'Học viên đã tồn tại trong khóa học' });
+          continue;
+        }
+
+        studentsToInsert.push({
+          course_id,
+          full_name,
+          dob: dob || '2000-01-01',
+          cccd,
+          phone,
+          category: studentCat,
+          student_status: 'active',
+          cabin_status: 'not_submitted',
+          created_by: req.user.id
+        });
+
+        existingCCCDs.add(cccd);
+      }
+    } else {
+      // Xử lý file Excel (.xlsx / .xls)
+      if (!course_id) {
+        return res.status(400).json({ success: false, message: 'Vui lòng chọn khóa học khi nhập file Excel.' });
+      }
+
+      const { data: course } = await supabase.from('courses').select('*').eq('id', course_id).single();
+      if (!course) return res.status(404).json({ success: false, message: 'Không tìm thấy khóa học.' });
+      targetCourse = course;
+
+      let workbook;
+      try {
+        workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+      } catch (e) {
+        return res.status(400).json({ success: false, message: 'File không đúng định dạng. Vui lòng sử dụng file Excel (.xlsx/.xls) hoặc XML (Báo cáo 1).' });
+      }
+
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const rows = xlsx.utils.sheet_to_json(sheet, { defval: '' });
+
+      if (rows.length === 0) {
+        return res.status(400).json({ success: false, message: 'File không có dữ liệu.' });
+      }
+
+      const { data: existingStudents } = await supabase
+        .from('students')
+        .select('cccd')
+        .eq('course_id', course_id);
+      const existingCCCDs = new Set(existingStudents?.map(s => s.cccd) || []);
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowNum = i + 2;
+
+        const full_name = (row['Họ tên'] || row['full_name'] || row['HoTen'] || '').toString().trim();
+        const cccd = (row['CCCD'] || row['Số CCCD'] || row['CMND'] || row['cccd'] || '').toString().trim();
+        const dob_raw = row['Ngày sinh'] || row['dob'] || row['NgaySinh'] || '';
+        const phone = (row['Số điện thoại'] || row['phone'] || row['SoDienThoai'] || '').toString().trim();
+        const cat = (row['Hạng'] || row['category'] || row['HangDaoTao'] || targetCourse.category || '').toString().trim();
+
+        if (!full_name || !cccd) {
+          errorList.push({ row: rowNum, cccd, reason: 'Thiếu thông tin bắt buộc (Họ tên, CCCD)' });
+          continue;
+        }
+
+        if (existingCCCDs.has(cccd)) {
+          errorList.push({ row: rowNum, cccd, reason: 'CCCD đã tồn tại trong khóa học' });
+          continue;
+        }
+
+        let dob = null;
+        if (dob_raw) {
+          if (typeof dob_raw === 'number') {
+            const date = xlsx.SSF.parse_date_code(dob_raw);
+            dob = `${date.y}-${String(date.m).padStart(2,'0')}-${String(date.d).padStart(2,'0')}`;
+          } else {
+            dob = parseDob(dob_raw);
+          }
+        }
+
+        studentsToInsert.push({
+          course_id,
+          full_name,
+          dob: dob || '2000-01-01',
+          cccd,
+          phone: phone || null,
+          category: normalizeCategory(cat),
+          student_status: 'active',
+          cabin_status: 'not_submitted',
+          created_by: req.user.id
+        });
+        existingCCCDs.add(cccd);
+      }
     }
 
-    // Bulk insert
+    // Bulk Insert theo batch (tránh quá tải)
     let insertedCount = 0;
-    if (successList.length > 0) {
-      const { error } = await supabase.from('students').insert(successList);
-      if (error) throw error;
-      insertedCount = successList.length;
+    if (studentsToInsert.length > 0) {
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < studentsToInsert.length; i += BATCH_SIZE) {
+        const batch = studentsToInsert.slice(i, i + BATCH_SIZE);
+        const { error } = await supabase.from('students').insert(batch);
+        if (error) throw error;
+        insertedCount += batch.length;
+      }
     }
 
     await writeAuditLog({
       userId: req.user.id,
       action: 'IMPORT',
       entity: 'students',
-      afterData: { course_id, inserted: insertedCount, errors: errorList.length },
+      afterData: {
+        course_id: targetCourse.id,
+        course_code: targetCourse.code,
+        inserted: insertedCount,
+        skipped: errorList.length
+      },
       ipAddress: req.ip
     });
 
     return res.status(200).json({
       success: true,
-      message: `Nhập thành công ${insertedCount} học viên. ${errorList.length > 0 ? `${errorList.length} dòng lỗi.` : ''}`,
-      data: { inserted: insertedCount, errors: errorList }
+      message: `Tải lên thành công! Khóa học: ${targetCourse.code} (${targetCourse.name}). Đã thêm ${insertedCount} học viên.${errorList.length > 0 ? ` (${errorList.length} học viên đã tồn tại hoặc bỏ qua)` : ''}`,
+      data: {
+        course: targetCourse,
+        inserted: insertedCount,
+        skipped: errorList.length,
+        errors: errorList
+      }
     });
   } catch (err) {
     console.error('[StudentController] importStudents:', err);
-    return res.status(500).json({ success: false, message: 'Lỗi hệ thống khi xử lý file.' });
+    return res.status(500).json({ success: false, message: 'Lỗi hệ thống khi xử lý file import.' });
   }
 };
 

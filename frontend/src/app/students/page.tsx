@@ -97,23 +97,32 @@ export default function StudentsPage() {
 
   const handleImportFile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!importFile || !importCourseId) {
-      toast.error('Vui lòng chọn khóa học và file dữ liệu');
+    if (!importFile) {
+      toast.error('Vui lòng chọn file dữ liệu (.xml hoặc .xlsx)');
+      return;
+    }
+
+    const isXml = importFile.name.toLowerCase().endsWith('.xml');
+    if (!isXml && !importCourseId) {
+      toast.error('Vui lòng chọn khóa học khi nhập file Excel');
       return;
     }
 
     const data = new FormData();
     data.append('file', importFile);
-    data.append('course_id', importCourseId);
+    if (importCourseId) {
+      data.append('course_id', importCourseId);
+    }
 
     try {
       const res = await api.post('/students/import', data, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       if (res.data.success) {
-        toast.success(res.data.message);
+        toast.success(res.data.message, { duration: 6000 });
         setShowImportModal(false);
         setImportFile(null);
+        fetchCourses();
         fetchStudents();
       }
     } catch (err: any) {
@@ -432,19 +441,20 @@ export default function StudentsPage() {
           <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
             <h3 className="text-lg font-bold text-white flex items-center space-x-2">
               <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
-              <span>Import Danh Sách Học Viên (Báo Cáo 1)</span>
+              <span>Import File Báo Cáo 1 (BC1)</span>
             </h3>
 
             <form onSubmit={handleImportFile} className="space-y-4 text-sm">
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">Khóa Đào Tạo *</label>
+                <label className="block text-xs font-medium text-slate-400 mb-1">
+                  Khóa Đào Tạo <span className="text-slate-500 font-normal">(Tùy chọn với file XML BC1)</span>
+                </label>
                 <select
                   value={importCourseId}
                   onChange={(e) => setImportCourseId(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-blue-500"
-                  required
                 >
-                  <option value="">-- Chọn Khóa Đào Tạo --</option>
+                  <option value="">-- Tự Động Đọc Từ File XML --</option>
                   {courses.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.code} - {c.name}
@@ -454,7 +464,7 @@ export default function StudentsPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">File Excel / XML *</label>
+                <label className="block text-xs font-medium text-slate-400 mb-1">File Báo Cáo (.xml / .xlsx) *</label>
                 <input
                   type="file"
                   accept=".xlsx,.xls,.xml"
@@ -464,9 +474,16 @@ export default function StudentsPage() {
                 />
               </div>
 
-              <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800 text-xs text-slate-400 space-y-1">
-                <p className="font-semibold text-slate-300">Yêu cầu cấu trúc cột file Excel:</p>
-                <p>• Họ tên / HoTen | Số CCCD / cccd | Ngày sinh | Hạng / Category</p>
+              <div className="p-3.5 bg-slate-950/80 rounded-xl border border-blue-500/20 text-xs text-slate-300 space-y-1.5">
+                <p className="font-semibold text-blue-400 flex items-center space-x-1">
+                  <span>⚡ Tự Động Hóa Nhập Dữ Liệu Báo Cáo 1:</span>
+                </p>
+                <p className="text-slate-400 leading-relaxed">
+                  • <strong className="text-white">File XML:</strong> Hệ thống tự động trích xuất thông tin và <strong className="text-emerald-400">tạo mới Khóa học</strong> (nếu chưa có) & toàn bộ danh sách Học viên.
+                </p>
+                <p className="text-slate-400 leading-relaxed">
+                  • <strong className="text-white">File Excel:</strong> Vui lòng chọn Khóa học tương ứng trước khi bấm Import.
+                </p>
               </div>
 
               <div className="flex justify-end space-x-3 pt-4 border-t border-slate-800">
@@ -481,7 +498,7 @@ export default function StudentsPage() {
                   type="submit"
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-semibold shadow-lg shadow-emerald-600/30"
                 >
-                  Import Ngay
+                  Import Dữ Liệu
                 </button>
               </div>
             </form>
