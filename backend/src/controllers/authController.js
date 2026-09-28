@@ -27,13 +27,17 @@ const login = async (req, res) => {
 
     if (error) {
       console.error(`[Auth] Lỗi truy vấn Supabase cho user "${cleanUsername}":`, error.message);
+      return res.status(401).json({
+        success: false,
+        message: `Lỗi CSDL Supabase: ${error.message}`
+      });
     }
 
     if (!user) {
       console.warn(`[Auth] Không tìm thấy user "${cleanUsername}" trong database.`);
       return res.status(401).json({
         success: false,
-        message: 'Thông tin đăng nhập không chính xác.'
+        message: `Tài khoản "${cleanUsername}" không tồn tại.`
       });
     }
 
@@ -52,7 +56,7 @@ const login = async (req, res) => {
       console.warn(`[Auth] Mật khẩu nhập vào không khớp cho user "${cleanUsername}".`);
       return res.status(401).json({
         success: false,
-        message: 'Thông tin đăng nhập không chính xác.'
+        message: 'Mật khẩu không chính xác. Vui lòng kiểm tra lại.'
       });
     }
 
@@ -94,7 +98,7 @@ const login = async (req, res) => {
     });
   } catch (err) {
     console.error('[AuthController] Lỗi không xác định:', err);
-    return res.status(500).json({ success: false, message: 'Lỗi hệ thống.' });
+    return res.status(500).json({ success: false, message: `Lỗi hệ thống: ${err.message}` });
   }
 };
 
