@@ -10,11 +10,14 @@ import {
   CheckCircle, Clock, FileSpreadsheet, Eye, Info
 } from 'lucide-react';
 
+import { useDebounce } from '@/hooks/useDebounce';
+
 export default function DATPage() {
   const [datList, setDatList] = useState<any[]>([]);
   const [courses, setCourses] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 300);
   const [courseId, setCourseId] = useState('');
   const [hasError, setHasError] = useState(false);
 
@@ -27,11 +30,26 @@ export default function DATPage() {
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [studentDetail, setStudentDetail] = useState<any>(null);
 
+  // Tải cache tức thì khi mở trang (0ms delay)
+  useEffect(() => {
+    try {
+      const cachedDat = sessionStorage.getItem('cache_dat_list');
+      if (cachedDat) setDatList(JSON.parse(cachedDat));
+      const cachedCourses = sessionStorage.getItem('cache_courses');
+      if (cachedCourses) setCourses(JSON.parse(cachedCourses));
+
+      if (!cachedDat) setLoading(true);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
   const fetchCourses = async () => {
     try {
       const res = await api.get('/courses?status=active');
       if (res.data.success) {
         setCourses(res.data.data);
+        sessionStorage.setItem('cache_courses', JSON.stringify(res.data.data));
       }
     } catch (err) {
       console.error(err);
@@ -39,13 +57,13 @@ export default function DATPage() {
   };
 
   const fetchDAT = async () => {
-    setLoading(true);
     try {
       const res = await api.get('/dat', {
-        params: { search, course_id: courseId, has_error: hasError }
+        params: { search: debouncedSearch, course_id: courseId, has_error: hasError }
       });
       if (res.data.success) {
         setDatList(res.data.data);
+        sessionStorage.setItem('cache_dat_list', JSON.stringify(res.data.data));
       }
     } catch (err) {
       toast.error('Lỗi khi tải dữ liệu DAT');
@@ -60,7 +78,7 @@ export default function DATPage() {
 
   useEffect(() => {
     fetchDAT();
-  }, [search, courseId, hasError]);
+  }, [debouncedSearch, courseId, hasError]);
 
   const handleImportDAT = async (e: React.FormEvent) => {
     e.preventDefault();

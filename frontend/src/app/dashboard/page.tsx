@@ -19,14 +19,28 @@ import Link from 'next/link';
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+
+  // Load cache instantly on mount (0ms delay)
+  useEffect(() => {
+    try {
+      const cached = sessionStorage.getItem('cache_dashboard_stats');
+      if (cached) {
+        setStats(JSON.parse(cached));
+      } else {
+        setLoading(true);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
 
   const fetchStats = async () => {
-    setLoading(true);
     try {
       const res = await api.get('/dashboard/stats');
       if (res.data.success) {
         setStats(res.data.data);
+        sessionStorage.setItem('cache_dashboard_stats', JSON.stringify(res.data.data));
       }
     } catch (err) {
       console.error(err);

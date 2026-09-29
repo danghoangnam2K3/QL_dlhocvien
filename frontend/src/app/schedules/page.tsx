@@ -28,11 +28,26 @@ export default function SchedulesPage() {
     notes: ''
   });
 
+  // Load cache instantly on mount (0ms delay)
+  useEffect(() => {
+    try {
+      const cached = sessionStorage.getItem('cache_schedules_list');
+      if (cached) setSchedules(JSON.parse(cached));
+      const cachedStudents = sessionStorage.getItem('cache_students_active');
+      if (cachedStudents) setStudents(JSON.parse(cachedStudents));
+
+      if (!cached) setLoading(true);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
   const fetchStudents = async () => {
     try {
       const res = await api.get('/students?status=active');
       if (res.data.success) {
         setStudents(res.data.data);
+        sessionStorage.setItem('cache_students_active', JSON.stringify(res.data.data));
       }
     } catch (err) {
       console.error(err);
@@ -40,13 +55,13 @@ export default function SchedulesPage() {
   };
 
   const fetchSchedules = async () => {
-    setLoading(true);
     try {
       const res = await api.get('/schedules', {
         params: { type: typeFilter, status: statusFilter }
       });
       if (res.data.success) {
         setSchedules(res.data.data);
+        sessionStorage.setItem('cache_schedules_list', JSON.stringify(res.data.data));
       }
     } catch (err) {
       toast.error('Lỗi khi tải lịch học');

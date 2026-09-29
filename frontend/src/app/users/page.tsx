@@ -29,12 +29,26 @@ export default function UsersPage() {
 
   const [newPassword, setNewPassword] = useState('');
 
+  // Load cache instantly on mount (0ms delay)
+  useEffect(() => {
+    try {
+      const cached = sessionStorage.getItem('cache_users_list');
+      if (cached) {
+        setUsers(JSON.parse(cached));
+      } else {
+        setLoading(true);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
   const fetchUsers = async () => {
-    setLoading(true);
     try {
       const res = await api.get('/users');
       if (res.data.success) {
         setUsers(res.data.data);
+        sessionStorage.setItem('cache_users_list', JSON.stringify(res.data.data));
       }
     } catch (err: any) {
       toast.error('Lỗi khi tải danh sách người dùng');

@@ -7,10 +7,13 @@ import { api } from '@/lib/api';
 import toast, { Toaster } from 'react-hot-toast';
 import { Plus, Search, Filter, Edit, Trash2, BookOpen, Calendar, CheckCircle, XCircle, FileSpreadsheet } from 'lucide-react';
 
+import { useDebounce } from '@/hooks/useDebounce';
+
 export default function CoursesPage() {
   const [courses, setCourses] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 300);
   const [category, setCategory] = useState('');
 
   // Modal State
@@ -29,12 +32,26 @@ export default function CoursesPage() {
     notes: ''
   });
 
-  const fetchCourses = async () => {
-    setLoading(true);
+  // Load cache instantly on mount (0ms delay)
+  useEffect(() => {
     try {
-      const res = await api.get('/courses', { params: { search, category } });
+      const cached = sessionStorage.getItem('cache_courses_list');
+      if (cached) {
+        setCourses(JSON.parse(cached));
+      } else {
+        setLoading(true);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const fetchCourses = async () => {
+    try {
+      const res = await api.get('/courses', { params: { search: debouncedSearch, category } });
       if (res.data.success) {
         setCourses(res.data.data);
+        sessionStorage.setItem('cache_courses_list', JSON.stringify(res.data.data));
       }
     } catch (err: any) {
       toast.error('Lỗi khi tải danh sách khóa học');
@@ -45,7 +62,7 @@ export default function CoursesPage() {
 
   useEffect(() => {
     fetchCourses();
-  }, [search, category]);
+  }, [debouncedSearch, category]);
 
   const handleImportFile = async (e: React.FormEvent) => {
     e.preventDefault();

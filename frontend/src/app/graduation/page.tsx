@@ -31,12 +31,26 @@ export default function GraduationPage() {
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [registerFile, setRegisterFile] = useState<File | null>(null);
 
+  // Load cache instantly on mount (0ms delay)
+  useEffect(() => {
+    try {
+      const cached = sessionStorage.getItem('cache_graduation_batches');
+      if (cached) {
+        setBatches(JSON.parse(cached));
+      } else {
+        setLoading(true);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
   const fetchBatches = async () => {
-    setLoading(true);
     try {
       const res = await api.get('/graduation/batches');
       if (res.data.success) {
         setBatches(res.data.data);
+        sessionStorage.setItem('cache_graduation_batches', JSON.stringify(res.data.data));
       }
     } catch (err) {
       toast.error('Lỗi khi tải danh sách đợt tốt nghiệp');
