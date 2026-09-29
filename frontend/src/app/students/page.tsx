@@ -11,11 +11,14 @@ import {
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight
 } from 'lucide-react';
 
+import { useDebounce } from '@/hooks/useDebounce';
+
 export default function StudentsPage() {
   const [students, setStudents] = useState<any[]>([]);
   const [courses, setCourses] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 300);
   const [courseId, setCourseId] = useState('');
   const [status, setStatus] = useState('');
 
@@ -53,11 +56,34 @@ export default function StudentsPage() {
 
   const [cancelReason, setCancelReason] = useState('');
 
+  // 1. Tải cache tức thì khi mở trang (0ms delay)
+  useEffect(() => {
+    try {
+      const cachedCourses = sessionStorage.getItem('cache_courses');
+      if (cachedCourses) setCourses(JSON.parse(cachedCourses));
+
+      const cachedStudents = sessionStorage.getItem('cache_students');
+      if (cachedStudents) {
+        const parsed = JSON.parse(cachedStudents);
+        setStudents(parsed.data || []);
+        if (parsed.pagination) {
+          setTotal(parsed.pagination.total || 0);
+          setTotalPages(parsed.pagination.totalPages || 1);
+        }
+      } else {
+        setLoading(true);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
   const fetchCourses = async () => {
     try {
       const res = await api.get('/courses?status=active');
       if (res.data.success) {
         setCourses(res.data.data);
+        sessionStorage.setItem('cache_courses', JSON.stringify(res.data.data));
       }
     } catch (err) {
       console.error(err);
@@ -65,10 +91,9 @@ export default function StudentsPage() {
   };
 
   const fetchStudents = async () => {
-    setLoading(true);
     try {
       const res = await api.get('/students', {
-        params: { search, course_id: courseId, status, page, limit }
+        params: { search: debouncedSearch, course_id: courseId, status, page, limit }
       });
       if (res.data.success) {
         setStudents(res.data.data);
@@ -76,6 +101,10 @@ export default function StudentsPage() {
           setTotal(res.data.pagination.total || 0);
           setTotalPages(res.data.pagination.totalPages || 1);
         }
+        sessionStorage.setItem('cache_students', JSON.stringify({
+          data: res.data.data,
+          pagination: res.data.pagination
+        }));
       }
     } catch (err) {
       toast.error('Lỗi khi tải danh sách học viên');
@@ -90,11 +119,11 @@ export default function StudentsPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, courseId, status, limit]);
+  }, [debouncedSearch, courseId, status, limit]);
 
   useEffect(() => {
     fetchStudents();
-  }, [search, courseId, status, page, limit]);
+  }, [debouncedSearch, courseId, status, page, limit]);
 
   const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault();

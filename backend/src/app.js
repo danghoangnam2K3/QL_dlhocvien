@@ -62,6 +62,19 @@ app.use(errorHandler);
 // ========================
 const PORT = process.env.PORT || 5000;
 
+const https = require('https');
+const http = require('http');
+
+// Keep-alive self ping to prevent Render free instance cold start sleep
+function keepServerAlive() {
+  const targetUrl = process.env.RENDER_EXTERNAL_URL
+    ? `${process.env.RENDER_EXTERNAL_URL}/api/health`
+    : 'https://ql-dlhocvien-backend.onrender.com/api/health';
+
+  const client = targetUrl.startsWith('https') ? https : http;
+  client.get(targetUrl, () => {}).on('error', () => {});
+}
+
 async function startServer() {
   await testConnection();
   app.listen(PORT, () => {
@@ -73,6 +86,9 @@ async function startServer() {
     console.log(`📡 API Base URL: http://localhost:${PORT}/api`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
     console.log('');
+
+    // Khởi động self-ping mỗi 10 phút
+    setInterval(keepServerAlive, 10 * 60 * 1000);
   });
 }
 
