@@ -7,7 +7,9 @@ const path = require('path');
 const getStudents = async (req, res) => {
   try {
     const { page = 1, limit = 20, search = '', course_id = '', status = '', category = '' } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const parsedPage = Math.max(1, parseInt(page) || 1);
+    const parsedLimit = Math.max(1, Math.min(1000, parseInt(limit) || 20));
+    const offset = (parsedPage - 1) * parsedLimit;
 
     let query = supabase
       .from('students')
@@ -16,9 +18,7 @@ const getStudents = async (req, res) => {
         cabin_status, cabin_submit_date, student_status,
         created_at,
         course:courses(id, code, name, category, status)
-      `, { count: 'exact' })
-      .order('created_at', { ascending: false })
-      .range(offset, offset + parseInt(limit) - 1);
+      `, { count: 'exact' });
 
     if (search) {
       query = query.or(`full_name.ilike.%${search}%,cccd.ilike.%${search}%,phone.ilike.%${search}%`);
@@ -27,13 +27,25 @@ const getStudents = async (req, res) => {
     if (status) query = query.eq('student_status', status);
     if (category) query = query.eq('category', category);
 
+    query = query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + parsedLimit - 1);
+
     const { data, error, count } = await query;
     if (error) throw error;
 
+    const total = count || 0;
+    const totalPages = Math.ceil(total / parsedLimit);
+
     return res.status(200).json({
       success: true,
-      data,
-      pagination: { page: parseInt(page), limit: parseInt(limit), total: count }
+      data: data || [],
+      pagination: {
+        page: parsedPage,
+        limit: parsedLimit,
+        total,
+        totalPages: totalPages > 0 ? totalPages : 1
+      }
     });
   } catch (err) {
     console.error('[StudentController] getStudents:', err);

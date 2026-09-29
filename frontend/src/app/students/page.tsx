@@ -7,7 +7,8 @@ import { api } from '@/lib/api';
 import toast, { Toaster } from 'react-hot-toast';
 import {
   Plus, Search, Upload, User, Phone, IdCard, Calendar,
-  FileCheck, XCircle, Edit, Ban, FileSpreadsheet
+  FileCheck, XCircle, Edit, Ban, FileSpreadsheet,
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight
 } from 'lucide-react';
 
 export default function StudentsPage() {
@@ -17,6 +18,12 @@ export default function StudentsPage() {
   const [search, setSearch] = useState('');
   const [courseId, setCourseId] = useState('');
   const [status, setStatus] = useState('');
+
+  // Pagination State
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   // Modals state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -61,10 +68,14 @@ export default function StudentsPage() {
     setLoading(true);
     try {
       const res = await api.get('/students', {
-        params: { search, course_id: courseId, status }
+        params: { search, course_id: courseId, status, page, limit }
       });
       if (res.data.success) {
         setStudents(res.data.data);
+        if (res.data.pagination) {
+          setTotal(res.data.pagination.total || 0);
+          setTotalPages(res.data.pagination.totalPages || 1);
+        }
       }
     } catch (err) {
       toast.error('Lỗi khi tải danh sách học viên');
@@ -78,8 +89,12 @@ export default function StudentsPage() {
   }, []);
 
   useEffect(() => {
+    setPage(1);
+  }, [search, courseId, status, limit]);
+
+  useEffect(() => {
     fetchStudents();
-  }, [search, courseId, status]);
+  }, [search, courseId, status, page, limit]);
 
   const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -325,6 +340,73 @@ export default function StudentsPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination Bar */}
+            {total > 0 && (
+              <div className="px-6 py-4 bg-slate-950/60 border-t border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-slate-400">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span>
+                    Hiển thị <strong className="text-white">{(page - 1) * limit + 1}</strong> - <strong className="text-white">{Math.min(page * limit, total)}</strong> trên tổng số <strong className="text-emerald-400">{total}</strong> học viên
+                  </span>
+                  <span className="text-slate-700 hidden md:inline">|</span>
+                  <div className="flex items-center space-x-2">
+                    <span>Số lượng hiển thị:</span>
+                    <select
+                      value={limit}
+                      onChange={(e) => setLimit(Number(e.target.value))}
+                      className="px-2.5 py-1 bg-slate-900 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-blue-500 font-medium"
+                    >
+                      <option value={10}>10 dòng / trang</option>
+                      <option value={20}>20 dòng / trang</option>
+                      <option value={50}>50 dòng / trang</option>
+                      <option value={100}>100 dòng / trang</option>
+                      <option value={250}>250 dòng / trang</option>
+                      <option value={500}>500 dòng (Tất cả)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-1.5">
+                  <button
+                    onClick={() => setPage(1)}
+                    disabled={page === 1}
+                    className="p-1.5 rounded-lg border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    title="Trang đầu"
+                  >
+                    <ChevronsLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="p-1.5 rounded-lg border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    title="Trang trước"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+
+                  <div className="px-3.5 py-1 bg-blue-600/20 text-blue-400 border border-blue-500/30 rounded-lg font-bold text-xs">
+                    Trang {page} / {totalPages}
+                  </div>
+
+                  <button
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page >= totalPages}
+                    className="p-1.5 rounded-lg border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    title="Trang sau"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setPage(totalPages)}
+                    disabled={page >= totalPages}
+                    className="p-1.5 rounded-lg border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    title="Trang cuối"
+                  >
+                    <ChevronsRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </main>
       </div>
